@@ -1,22 +1,24 @@
-from fastapi import FastAPI, Depends, status, HTTPException, Form, UploadFile
+from fastapi import FastAPI, Depends, status, HTTPException, UploadFile, Form
+from fastapi.responses import FileResponse
 import uvicorn
-from .schemas import User, ShowUser, ShowLogoImage, ShowProfileImage
+import os
+from .schemas import User, ShowUser, ShowLogoImage, ShowProfileImage, ProfileImage, ImageCreate
 from . import models
 from .database import engine, SessionLocal
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-from typing import List, Dict
+from typing import List, Dict, Union
 from fastapi.staticfiles import StaticFiles
 import shutil
 from fastapi.middleware.cors import CORSMiddleware
-
-
-models.Base.metadata.create_all(engine)
+from pathlib import Path
 
 
 app = FastAPI()
 
 app.mount("/images", StaticFiles(directory="images"), name="images")
+
+models.Base.metadata.create_all(engine)
 
 
 def get_db():
@@ -43,54 +45,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# @app.post('/blog', status_code=status.HTTP_201_CREATED, tags=['Blogs'], response_model=ShowBlog)
-# def create(request: Blogs, db: Session = Depends(get_db)):
-#     new_post = models.Blogs(title=request.title,
-#                             body=request.body, user_id=request.user_id)
-#     db.add(new_post)
-#     db.commit()
-#     db.refresh(new_post)
-#     return new_post
-
-
-# @app.get('/blog', tags=['Blogs'])
-# def blog(db: Session = Depends(get_db)):
-#     posts = db.query(models.Blogs).all()
-#     return posts
-
-
-# @app.put('/blog/{id}', status_code=status.HTTP_202_ACCEPTED, tags=['Blogs'])
-# def update_(id: int, request: Blogs, db: Session = Depends(get_db)):
-#     post = db.query(models.Blogs).filter(models.Blogs.id == id)
-#     if not post.first():
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-#                             detail=f'Update Unsuccessful, No post with id {id}')
-#     post.update({'title': request.title, 'body': request.body})
-#     db.commit()
-#     return 'Update Successful'
-
-
-# @app.get('/blog/{id}', status_code=status.HTTP_404_NOT_FOUND, tags=['Blogs'])
-# def get_post(id: int, db: Session = Depends(get_db)):
-#     post = db.query(models.Blogs).filter(models.Blogs.id == id).first()
-#     if not post:
-#         return 'Post does not Exist'
-#     return post
-
-
-# @app.delete('/blog/{id}', tags=['Blogs'])
-# def delete_post(id, db: Session = Depends(get_db)):
-#     db.query(models.Blogs).filter(models.Blogs.id ==
-#                                   id).delete(synchronize_session=False)
-#     db.commit()
-#     return 'Post Deleted '
-
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_ROOT = os.path.join(BASE_DIR, 'images')
 
 pwd_cntxt = CryptContext(schemes=["bcrypt"], deprecated='auto')
 
 
-@app.post('/users', tags=['Users'], response_model=ShowUser)
+# User Routes ....................................................................................................
+
+@app.post('/users', tags=['Users'], response_model=ShowUser, status_code=status.HTTP_201_CREATED,)
 async def create_user(request: User, db: Session = Depends(get_db)):
     hashed_pwd = pwd_cntxt.hash(request.password)
     user = models.User(
@@ -109,18 +72,30 @@ async def create_user(request: User, db: Session = Depends(get_db)):
     return user
 
 
-@app.post("/profileimages", tags=['Profile Images'])
-async def create_image(myimage: UploadFile = Form(), db: Session = Depends(get_db)):
-    file_path = f"images/{myimage.file.filename}"
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(myimage.file.file, buffer)
-    db_image = models.ProfileImages(image=file_path, user_id=9)
-    print(file_path)
-    db.add(db_image)
-    db.commit()
-    db.refresh(db_image)
-    return 'uploaded'
-    # return {"id": db_image.id, "image": db_image.image}
+@app.post("/profileimages", tags=['Profile Images'], status_code=status.HTTP_201_CREATED,)
+async def create_image(myimage: UploadFile, db: Session = Depends(get_db)) -> Path:
+
+    file_path = Path(f"images/profileimages/{myimage.filename}")
+
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(myimage.file, buffer)
+            global tmp_path
+            tmp_path = Path(buffer.name)
+
+    finally:
+        myimage.file.close()
+
+    # db_image = models.ProfileImages(image=tmp_path, user_id=1)
+
+    # db.add(db_image)
+    # db.commit()
+    # db.refresh(db_image)
+
+    return tmp_path
+    # return {'db': db_image, 'fpath': tmp_path}
+
+    # return {"id": db_image.id, "image": db_image.image, "user_id": db_image.user_id}
 
 
 # @app.post("/profileimages", tags=['Profile Images'], response_model=ShowProfileImage)
@@ -172,5 +147,51 @@ def delete_user(id, db: Session = Depends(get_db)):
     return 'User Deleted'
 
 
+# Property Routes ....................................................................................................
+
+
 if __name__ == "__main__":
     uvicorn.run(app)
+
+
+# @app.post('/blog', status_code=status.HTTP_201_CREATED, tags=['Blogs'], response_model=ShowBlog)
+# def create(request: Blogs, db: Session = Depends(get_db)):
+#     new_post = models.Blogs(title=request.title,
+#                             body=request.body, user_id=request.user_id)
+#     db.add(new_post)
+#     db.commit()
+#     db.refresh(new_post)
+#     return new_post
+
+
+# @app.get('/blog', tags=['Blogs'])
+# def blog(db: Session = Depends(get_db)):
+#     posts = db.query(models.Blogs).all()
+#     return posts
+
+
+# @app.put('/blog/{id}', status_code=status.HTTP_202_ACCEPTED, tags=['Blogs'])
+# def update_(id: int, request: Blogs, db: Session = Depends(get_db)):
+#     post = db.query(models.Blogs).filter(models.Blogs.id == id)
+#     if not post.first():
+#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+#                             detail=f'Update Unsuccessful, No post with id {id}')
+#     post.update({'title': request.title, 'body': request.body})
+#     db.commit()
+#     return 'Update Successful'
+
+
+# @app.get('/blog/{id}', status_code=status.HTTP_404_NOT_FOUND, tags=['Blogs'])
+# def get_post(id: int, db: Session = Depends(get_db)):
+#     post = db.query(models.Blogs).filter(models.Blogs.id == id).first()
+#     if not post:
+#         return 'Post does not Exist'
+#     return post
+
+
+# @app.delete('/blog/{id}', tags=['Blogs'])
+# def delete_post(id, db: Session = Depends(get_db)):
+#     db.query(models.Blogs).filter(models.Blogs.id ==
+#                                   id).delete(synchronize_session=False)
+#     db.commit()
+#     return 'Post Deleted '
